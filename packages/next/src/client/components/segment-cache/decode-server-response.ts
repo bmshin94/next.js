@@ -5,7 +5,11 @@
  * downstream operates on RouteTree / NavigationSeed / CacheNode.
  */
 
-import { type SetLedgerValue, readMinLedger } from '../../../shared/lib/ledger-decoding'
+import {
+  type SetLedgerValue,
+  readBitLedger,
+  readMinLedger,
+} from '../../../shared/lib/ledger-decoding'
 import { STATIC_STALETIME_MS } from '../router-reducer/reducers/navigate-reducer'
 import type {
   FlightRouterState,
@@ -86,6 +90,7 @@ export type NavigationSeed = {
    * Null means the response-level staleness governs the head.
    */
   headStaleTimeSeconds: number | null
+  headNeedsRuntimeRequest: boolean | null
   dynamicStaleAt: number
   // Whether the response rendered a segment whose identity differs from the
   // base tree's at the same position (inactive parallel route branches are
@@ -156,6 +161,7 @@ export function createNavigationSeed(
   let isHeadPartial = true
   let headVaryParams: VaryParams | null = null
   let headStaleTimeSeconds: number | null = null
+  let headNeedsRuntimeRequest: boolean | null = null
   if (transportData !== null) {
     routeTree = decodeTransportTreeIntoRouteTree(
       transportData.t,
@@ -210,6 +216,10 @@ export function createNavigationSeed(
               : value
         }
       }
+      headNeedsRuntimeRequest =
+        transportHead.u !== undefined
+          ? readBitLedger(transportHead.u, false, true)
+          : null
     }
   } else {
     if (currentTree === null) {
@@ -233,6 +243,7 @@ export function createNavigationSeed(
     isHeadPartial,
     headVaryParams,
     headStaleTimeSeconds,
+    headNeedsRuntimeRequest,
     dynamicStaleAt: computeDynamicStaleAt(now, dynamicStaleTimeSeconds),
     treeDivergedFromBase: acc.treeDivergedFromBase,
   }
@@ -673,6 +684,11 @@ function decodeTransportNode(
       // above; skipped entirely (decoded as null, "unknown") when the caller
       // passed no root params — see createNavigationSeed.
       varyParams: readVaryParams(nodeData.v, rootVaryParams),
+      // Read each segment's captured verdict from this buffered stage.
+      needsRuntimeRequest:
+        nodeData.u !== undefined
+          ? readBitLedger(nodeData.u, false, true)
+          : null,
       staleTimeSeconds,
     }
   }
