@@ -1,3 +1,4 @@
+import { getLedgerValue } from './ledgers'
 import type { ComponentType, ErrorInfo, JSX, ReactNode } from 'react'
 import type { PartialTransportData } from '../../shared/lib/rsc-transport'
 import type { RenderOpts, PreloadCallbacks } from './types'
@@ -253,7 +254,7 @@ import {
 import { consoleAsyncStorage } from './console-async-storage.external'
 import { CacheSignal } from './cache-signal'
 import {
-  createResponseVaryParamsAccumulator,
+  createResponseVaryParamsTarget,
   finishAccumulatingVaryParams,
   getMetadataVaryParamsAccumulator,
   getRootParamsVaryParamsAccumulator,
@@ -787,12 +788,23 @@ async function generateDynamicRSCPayload(
         })
 
     if (responseTree !== null) {
+      const headVaryParams = getMetadataVaryParamsAccumulator()
+      const capturedHead = process.env.__NEXT_LEDGERS
+        ? ctx.componentMod.captureLedgers(responseTree.head, [
+            ctx.componentMod.VaryParamsLedger,
+          ])
+        : null
       transportData = {
         t: responseTree.tree,
         h: {
-          r: responseTree.head,
+          r: capturedHead !== null ? capturedHead.data : responseTree.head,
           p: responseTree.isHeadPartial,
-          v: getMetadataVaryParamsAccumulator(),
+          v:
+            headVaryParams === null
+              ? null
+              : capturedHead !== null
+                ? capturedHead.ledgers[0]
+                : (getLedgerValue(headVaryParams) ?? null),
         },
       }
     }
@@ -1087,14 +1099,15 @@ async function generateStagedDynamicFlightRenderResultNode(
   // Initialize stale time tracking on the request store.
   requestStore.stale = INFINITE_CACHE
   requestStore.stagedRendering = stageController
-  requestStore.varyParamsAccumulator = createResponseVaryParamsAccumulator()
+  requestStore.varyParamsAccumulator = createResponseVaryParamsTarget(
+    ctx.componentMod.VaryParamsLedger
+  )
   requestStore.asyncApiPromises = createAsyncApiPromises(
     stageController,
     requestStore.cookies,
     requestStore.mutableCookies,
     requestStore.headers
   )
-
   trackStaleTime(
     requestStore as { stale: number },
     staleTimeIterable,
@@ -1869,7 +1882,9 @@ async function finalRuntimeServerPrerender(
     finalStage,
   })
 
-  const varyParamsAccumulator = createResponseVaryParamsAccumulator()
+  const varyParamsAccumulator = createResponseVaryParamsTarget(
+    ctx.componentMod.VaryParamsLedger
+  )
 
   const finalServerPrerenderStore: PrerenderStoreModernRuntime = {
     type: 'prerender-runtime',
@@ -2227,6 +2242,13 @@ async function getRSCPayload(
   // See AppRenderCapabilities.isPossiblyPartialResponse for more context.
   const isPossiblyPartialHead = ctx.renderCapabilities.isPossiblyPartialResponse
 
+  const headVaryParams = getMetadataVaryParamsAccumulator()
+  const capturedHead = process.env.__NEXT_LEDGERS
+    ? ctx.componentMod.captureLedgers(initialHead, [
+        ctx.componentMod.VaryParamsLedger,
+      ])
+    : null
+
   return maybeAppendBuildIdToRSCPayload(ctx, {
     // See the comment above the `Preloads` component (below) for why this is part of the payload
     P: createElement(Preloads, {
@@ -2238,9 +2260,14 @@ async function getRSCPayload(
     t: {
       t: initialTree,
       h: {
-        r: initialHead,
+        r: capturedHead !== null ? capturedHead.data : initialHead,
         p: isPossiblyPartialHead,
-        v: getMetadataVaryParamsAccumulator(),
+        v:
+          headVaryParams === null
+            ? null
+            : capturedHead !== null
+              ? capturedHead.ledgers[0]
+              : (getLedgerValue(headVaryParams) ?? null),
       },
     },
     m: missingSlots,
@@ -2379,6 +2406,13 @@ async function getErrorRSCPayload(
 
   const isPossiblyPartialHead = ctx.renderCapabilities.isPossiblyPartialResponse
 
+  const headVaryParams = getMetadataVaryParamsAccumulator()
+  const capturedHead = process.env.__NEXT_LEDGERS
+    ? ctx.componentMod.captureLedgers(initialHead, [
+        ctx.componentMod.VaryParamsLedger,
+      ])
+    : null
+
   return maybeAppendBuildIdToRSCPayload(ctx, {
     c: prepareInitialCanonicalUrl(url),
     q: getRenderedSearch(query),
@@ -2387,9 +2421,14 @@ async function getErrorRSCPayload(
     t: {
       t: initialTree,
       h: {
-        r: initialHead,
+        r: capturedHead !== null ? capturedHead.data : initialHead,
         p: isPossiblyPartialHead,
-        v: getMetadataVaryParamsAccumulator(),
+        v:
+          headVaryParams === null
+            ? null
+            : capturedHead !== null
+              ? capturedHead.ledgers[0]
+              : (getLedgerValue(headVaryParams) ?? null),
       },
     },
     G: [GlobalError, globalErrorStyles],
@@ -3831,9 +3870,9 @@ async function renderToStream(
           requestStore.mutableCookies,
           requestStore.headers
         )
-        requestStore.varyParamsAccumulator =
-          createResponseVaryParamsAccumulator()
-
+        requestStore.varyParamsAccumulator = createResponseVaryParamsTarget(
+          ctx.componentMod.VaryParamsLedger
+        )
         trackStaleTime(
           requestStore as { stale: number },
           staleTimeIterable,
@@ -9077,7 +9116,9 @@ async function prerenderToStream(
       const finalServerReactController = new AbortController()
       const finalServerRenderController = new AbortController()
 
-      const varyParamsAccumulator = createResponseVaryParamsAccumulator()
+      const varyParamsAccumulator = createResponseVaryParamsTarget(
+        ctx.componentMod.VaryParamsLedger
+      )
 
       const finalStageController = new StagedRenderingController({
         abortSignal: finalServerRenderController.signal,
