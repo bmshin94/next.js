@@ -366,6 +366,33 @@ describe('Image Optimizer', () => {
     }
   )
   ;(isNextDev ? describe : describe.skip)(
+    'dev support next.config.js cloudinary loader',
+    () => {
+      const { next, skipped } = nextTestSetup({
+        files: join(__dirname, 'app'),
+        nextConfig: {
+          images: {
+            loader: 'cloudinary',
+            path: 'https://example.com/act123/',
+          },
+        },
+        skipDeployment: true,
+      })
+      if (skipped) return
+
+      it('should 404 when loader is not default', async () => {
+        const size = 384
+        const query = { w: size, q: 90, url: '/test.svg' }
+        const opts = { headers: { accept: 'image/webp' } }
+        const res = await next.fetch(
+          `/_next/image?${toQueryString(query)}`,
+          opts
+        )
+        expect(res.status).toBe(404)
+      })
+    }
+  )
+  ;(isNextDev ? describe : describe.skip)(
     'images.unoptimized in next.config.js',
     () => {
       const { next, skipped } = nextTestSetup({
