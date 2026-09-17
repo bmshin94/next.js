@@ -128,6 +128,11 @@ describe('next experimental-analyze', () => {
           'compare_bundles',
         ]
       )
+      expect(
+        toolList.tools.find(
+          (tool: { name: string }) => tool.name === 'query_bundle_sources'
+        ).inputSchema.required
+      ).toEqual(['route'])
 
       const overview = await callMcpTool(mcpUrl, 'get_bundle_overview', {
         routeFilter: 'NOT',
@@ -209,6 +214,109 @@ describe('next experimental-analyze', () => {
       serveProcess?.kill()
       await exit.catch(() => {})
     }
+  })
+  it('queries saved analyzer data as JSON', async () => {
+    const schemaResult = await next.runCommand([
+      'experimental-analyze',
+      '--query-schema',
+      'query_bundle_sources',
+      '--analyze-dir',
+      path.join(next.testDir, 'missing-analyzer-data'),
+    ])
+    expect(schemaResult.exitCode).toBe(0)
+    expect(schemaResult.stderr).toBe('')
+    const schema = JSON.parse(schemaResult.stdout)
+    expect(schema).toMatchObject({
+      name: 'query_bundle_sources',
+      description: expect.any(String),
+      inputSchema: {
+        type: 'object',
+        properties: {
+          route: { type: 'string' },
+          environment: { enum: ['total', 'client', 'server'] },
+        },
+        required: ['route'],
+      },
+    })
+
+    const unknownSchema = await next.runCommand([
+      'experimental-analyze',
+      '--query-schema',
+      'not_a_query',
+    ])
+    expect(unknownSchema.exitCode).toBe(1)
+    expect(JSON.parse(unknownSchema.stderr)).toEqual({
+      error: 'Unknown analyzer query: not_a_query',
+    })
+
+    const { exitCode } = await next.runCommand([
+      'experimental-analyze',
+      '--output',
+    ])
+    expect(exitCode).toBe(0)
+
+    async function query(tool: string, input: Record<string, unknown> = {}) {
+      const result = await next.runCommand([
+        'experimental-analyze',
+        '--query',
+        tool,
+        '--input',
+        JSON.stringify(input),
+      ])
+      expect(result.exitCode).toBe(0)
+      expect(result.stderr).toBe('')
+      return JSON.parse(result.stdout)
+    }
+
+    const overview = await query('get_bundle_overview', { limit: 1 })
+    expect(overview.routes).toHaveLength(1)
+
+    const sources = await query('query_bundle_sources', {
+      route: '/',
+      limit: 1,
+    })
+    expect(sources.sources).toHaveLength(1)
+
+    const explanation = await query('explain_bundle_source', {
+      route: '/',
+      sourcePath: sources.sources[0].sourcePath,
+    })
+    expect(explanation.sourcePath).toBe(sources.sources[0].sourcePath)
+
+    const comparison = await query('compare_bundles', {
+      baselineSnapshot: overview.snapshots.history[0].id,
+      limit: 1,
+    })
+    expect(comparison.rows).toHaveLength(1)
+
+    const malformed = await next.runCommand([
+      'experimental-analyze',
+      '--query',
+      'get_bundle_overview',
+      '--input',
+      'not-json',
+    ])
+    expect(malformed.exitCode).toBe(1)
+    expect(JSON.parse(malformed.stderr)).toHaveProperty('error')
+
+    const conflicting = await next.runCommand([
+      'experimental-analyze',
+      '--query',
+      'get_bundle_overview',
+      '--output',
+    ])
+    expect(conflicting.exitCode).toBe(1)
+    expect(conflicting.stderr).toContain('cannot be used with option')
+
+    const schemaConflict = await next.runCommand([
+      'experimental-analyze',
+      '--query-schema',
+      'get_bundle_overview',
+      '--query',
+      'get_bundle_overview',
+    ])
+    expect(schemaConflict.exitCode).toBe(1)
+    expect(schemaConflict.stderr).toContain('cannot be used with option')
   })
   ;['-o', '--output'].forEach((flag) => {
     describe(`with ${flag} flag`, () => {
