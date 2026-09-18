@@ -1,3 +1,4 @@
+import { PAGE_SEGMENT_KEY } from '../../../shared/lib/segment'
 import type { CacheNode, Segment } from '../../../shared/lib/app-router-types'
 import type React from 'react'
 import { PrefetchHint } from '../../../shared/lib/app-router-types'
@@ -56,6 +57,7 @@ import {
   getPathnameFromRequestURL,
   getRenderedPathname,
   getRenderedSearch,
+  normalizeRenderedSearch,
 } from '../../route-params'
 import {
   createCacheMap,
@@ -237,6 +239,23 @@ type PageRouteTree<TData> = RouteTreeShared<TData> & {
 }
 
 export type RouteTree<TData> = LayoutRouteTree<TData> | PageRouteTree<TData>
+
+export function doesRouteStructureMatch<TCurrent, TNext>(
+  currentTree: RouteTree<TCurrent>,
+  nextTree: RouteTree<TNext>
+): boolean {
+  // Request keys identify the route position, including dynamic param names
+  // and types, but not param values.
+  if (currentTree.requestKey !== nextTree.requestKey) {
+    return false
+  }
+  // Root request keys are always empty, including for global Not Found, so
+  // the root segment's identity must be checked separately.
+  return (
+    nextTree.requestKey !== ROOT_SEGMENT_REQUEST_KEY ||
+    currentTree.segment === nextTree.segment
+  )
+}
 
 type RouteCacheEntryShared = {
   // This is false only if we're certain the route cannot be intercepted. It's
@@ -805,7 +824,7 @@ export function deprecated_requestOptimisticRouteCacheEntry(
     routeWithNoSearchParams.renderedSearch !== ''
       ? // Base route was rewritten. Reuse the same rewritten search string.
         routeWithNoSearchParams.renderedSearch
-      : requestedSearch
+      : normalizeRenderedSearch(requestedSearch)
 
   const optimisticUrl = new URL(
     routeWithNoSearchParams.canonicalUrl,
@@ -1801,7 +1820,11 @@ export function convertFlightRouterStateToRouteTree(
         }
       : null
   const renderedSearch =
-    refreshState !== null ? refreshState.renderedSearch : parentRenderedSearch
+    originalSegment === PAGE_SEGMENT_KEY
+      ? (flightRouterState[5] as NormalizedSearch)
+      : refreshState !== null
+        ? refreshState.renderedSearch
+        : parentRenderedSearch
 
   const tree = createRouteTreeNode<null>(
     originalSegment,
@@ -1868,6 +1891,12 @@ export function convertRouteTreeToFlightRouterState<TData>(
   ]
   if (routeTree.prefetchHints !== 0) {
     flightRouterState[4] = routeTree.prefetchHints
+  }
+  if (routeTree.isPage) {
+    const renderedSearch = getRenderedSearchFromVaryPath(routeTree.varyPath)
+    if (renderedSearch !== null) {
+      flightRouterState[5] = renderedSearch
+    }
   }
   return flightRouterState
 }

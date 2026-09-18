@@ -9,20 +9,19 @@ import { createRouterCacheKey } from '../create-router-cache-key'
 export function findHeadInCache(
   cache: RouteTree<CacheNode>,
   parallelRoutes: FlightRouterState[1]
-): [RouteTree<CacheNode>, string, string] | null {
-  return findHeadInCacheImpl(cache, parallelRoutes, '', '')
+): [RouteTree<CacheNode>, string] | null {
+  return findHeadInCacheImpl(cache, parallelRoutes, '')
 }
 
 function findHeadInCacheImpl(
   cache: RouteTree<CacheNode>,
   parallelRoutes: FlightRouterState[1],
-  keyPrefix: string,
-  keyPrefixWithoutSearchParams: string
-): [RouteTree<CacheNode>, string, string] | null {
+  keyPrefix: string
+): [RouteTree<CacheNode>, string] | null {
   const isLastItem = Object.keys(parallelRoutes).length === 0
   if (isLastItem) {
     // Returns the render tree of the segment whose head we will render.
-    return [cache, keyPrefix, keyPrefixWithoutSearchParams]
+    return [cache, keyPrefix]
   }
 
   // First try the 'children' parallel route if it exists
@@ -52,13 +51,11 @@ function findHeadInCacheImpl(
       }
 
       const cacheKey = createRouterCacheKey(segment)
-      const cacheKeyWithoutSearchParams = createRouterCacheKey(segment, true)
 
       const item = findHeadInCacheImpl(
         childRenderTree,
         childParallelRoutes,
-        keyPrefix + '/' + cacheKey,
-        keyPrefix + '/' + cacheKeyWithoutSearchParams
+        keyPrefix + '/' + cacheKey
       )
 
       if (item) {

@@ -1,3 +1,4 @@
+import { PAGE_SEGMENT_KEY } from '../../shared/lib/segment'
 import type {
   FlightRouterState,
   PrefetchHints,
@@ -10,7 +11,6 @@ import {
   segmentToTransportSegment,
 } from '../../shared/lib/rsc-transport'
 import type { PreloadCallbacks } from './types'
-import { matchSegment } from '../../client/components/match-segments'
 import type { LoaderTree } from '../lib/app-dir-module'
 import { getLinkAndScriptTags } from './get-css-inlined-link-tags'
 import { getPreloadableFonts } from './get-preloadable-fonts'
@@ -20,7 +20,6 @@ import {
 } from './create-transport-tree-from-loader-tree'
 import type { AppRenderContext } from './app-render'
 import { hasLoadingComponentInTree } from './has-loading-component-in-tree'
-import { addSearchParamsIfPageSegment } from '../../shared/lib/segment'
 import { createComponentTree } from './create-component-tree'
 
 /**
@@ -36,6 +35,33 @@ export type NavigationResponseTree = {
   isHeadPartial: boolean
 }
 
+function didRouteOrPathParamChange(
+  actualSegment: Segment,
+  requestedSegment: Segment
+): boolean {
+  // The request still uses FlightRouterState, so compare its segment fields
+  // directly. Page search params live in a separate slot and are checked by
+  // the caller, as is the absence of router state at this position.
+  if (
+    typeof actualSegment === 'string' ||
+    typeof requestedSegment === 'string'
+  ) {
+    // Static segments must have the same string. A static segment and a
+    // dynamic segment always identify different routes.
+    return actualSegment !== requestedSegment
+  }
+
+  // Both segments are dynamic. The param name and type identify the route
+  // (e.g. [slug] versus [...slug]); the param value identifies the rendered
+  // instance. A change to either means rendering must start at this level.
+  // Static sibling hints at index 3 are not part of either identity.
+  return (
+    actualSegment[0] !== requestedSegment[0] ||
+    actualSegment[2] !== requestedSegment[2] ||
+    actualSegment[1] !== requestedSegment[1]
+  )
+}
+
 /**
  * Use router state to decide at what common layout to render the page.
  * This can either be the common layout between two pages or a specific place to start rendering from using the "refetch" marker in the tree.
@@ -48,6 +74,7 @@ export async function walkTreeWithFlightRouterState({
   loaderTreeToFilter,
   parentParams,
   flightRouterState,
+  renderedSearch,
   parentIsInsideSharedLayout,
   rscHead,
   injectedCSS,
@@ -62,6 +89,7 @@ export async function walkTreeWithFlightRouterState({
   loaderTreeToFilter: LoaderTree
   parentParams: { [key: string]: string | string[] }
   flightRouterState?: FlightRouterState
+  renderedSearch: string
   rscHead: HeadData
   parentIsInsideSharedLayout?: boolean
   injectedCSS: Set<string>
@@ -75,7 +103,6 @@ export async function walkTreeWithFlightRouterState({
 }): Promise<NavigationResponseTree | null> {
   const {
     renderOpts: { nextFontManifest, experimental },
-    query,
     isPrefetch,
     getDynamicParamFromSegment,
     parsedRequestHeaders,
@@ -110,10 +137,9 @@ export async function walkTreeWithFlightRouterState({
           [segmentParam.param]: segmentParam.value,
         }
       : parentParams
-  const actualSegment: Segment = addSearchParamsIfPageSegment(
-    segmentParam ? segmentParam.treeSegment : segment,
-    query
-  )
+  const actualSegment: Segment = segmentParam
+    ? segmentParam.treeSegment
+    : segment
 
   /**
    * Decide if the current segment is where rendering has to start.
@@ -121,8 +147,12 @@ export async function walkTreeWithFlightRouterState({
   const renderComponentsOnThisLevel =
     // No further router state available
     !flightRouterState ||
-    // Segment in router state does not match current segment
-    !matchSegment(actualSegment, flightRouterState[0]) ||
+    // Route structure or path param changed
+    didRouteOrPathParamChange(actualSegment, flightRouterState[0]) ||
+    // Page data has its own query identity. Missing means unknown, including
+    // older requests, so it cannot prove that the page is reusable.
+    (actualSegment === PAGE_SEGMENT_KEY &&
+      flightRouterState[5] !== renderedSearch) ||
     // Explicit refresh
     flightRouterState[3] === 'refetch'
 
@@ -180,7 +210,6 @@ export async function walkTreeWithFlightRouterState({
           ctx.missingPrefetchHintPolicy,
           partialPrefetching,
           getDynamicParamFromSegment,
-          query,
           rootLayoutIncluded
         )
 
@@ -210,7 +239,6 @@ export async function walkTreeWithFlightRouterState({
           ctx.missingPrefetchHintPolicy,
           partialPrefetching,
           getDynamicParamFromSegment,
-          query,
           rootLayoutIncluded
         )
     return {
@@ -289,6 +317,7 @@ export async function walkTreeWithFlightRouterState({
       parentParams: currentParams,
       flightRouterState:
         flightRouterState && flightRouterState[1][parallelRouteKey],
+      renderedSearch,
       parentIsInsideSharedLayout: isInsideSharedLayout,
       rscHead,
       injectedCSS: injectedCSSWithCurrentLayout,

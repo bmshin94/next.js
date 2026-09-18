@@ -1,6 +1,7 @@
-import { matchSegment } from '../match-segments'
-import { urlSearchParamsToParsedUrlQuery } from '../../route-params'
-import { getRenderedSearchFromVaryPath } from './vary-path'
+import {
+  getRenderedSearchFromVaryPath,
+  didLocalVaryParamsChange,
+} from './vary-path'
 import type {
   FlightRouterState,
   CacheNode,
@@ -23,6 +24,7 @@ import {
   type PendingSegmentCacheEntry,
   type SegmentCacheEntry,
   convertRouteTreeToFlightRouterState,
+  doesRouteStructureMatch,
   readOrCreateRevalidatingSegmentEntry,
   upgradeToPendingSegment,
   overwriteRevalidatingSegmentCacheEntry,
@@ -1368,7 +1370,8 @@ function pingSharedPartOfCacheComponentsTree(
       let childExitStatus
       if (
         oldTreeChild !== undefined &&
-        doesCurrentSegmentMatchCachedSegment(route, oldTreeChild, newTreeChild)
+        doesRouteStructureMatch(oldTreeChild, newTreeChild) &&
+        !didLocalVaryParamsChange(oldTreeChild.varyPath, newTreeChild.varyPath)
       ) {
         // We're still in the "shared" part of the tree.
         childExitStatus = pingSharedPartOfCacheComponentsTree(
@@ -1592,7 +1595,8 @@ function diffRouteTreeAgainstCurrent(
       const oldTreeChild = oldSlots?.get(parallelRouteKey)
       if (
         oldTreeChild !== undefined &&
-        doesCurrentSegmentMatchCachedSegment(route, oldTreeChild, newTreeChild)
+        doesRouteStructureMatch(oldTreeChild, newTreeChild) &&
+        !didLocalVaryParamsChange(oldTreeChild.varyPath, newTreeChild.varyPath)
       ) {
         // This segment is already part of the current route. Keep traversing.
         const requestTreeChild = diffRouteTreeAgainstCurrent(
@@ -1701,6 +1705,12 @@ function diffRouteTreeAgainstCurrent(
   ]
   if (newTree.prefetchHints !== 0) {
     requestTree[4] = newTree.prefetchHints
+  }
+  if (newTree.isPage) {
+    const renderedSearch = getRenderedSearchFromVaryPath(newTree.varyPath)
+    if (renderedSearch !== null) {
+      requestTree[5] = renderedSearch
+    }
   }
   return requestTree
 }
@@ -1822,6 +1832,12 @@ function pingPPRDisabledRouteTreeUpToLoadingBoundary(
   ]
   if (tree.prefetchHints !== 0) {
     requestTree[4] = tree.prefetchHints
+  }
+  if (tree.isPage) {
+    const renderedSearch = getRenderedSearchFromVaryPath(tree.varyPath)
+    if (renderedSearch !== null) {
+      requestTree[5] = renderedSearch
+    }
   }
   return requestTree
 }
@@ -2031,6 +2047,12 @@ function pingRouteTreeAndIncludeDynamicData(
   if (tree.prefetchHints !== 0) {
     requestTree[4] = tree.prefetchHints
   }
+  if (tree.isPage) {
+    const renderedSearch = getRenderedSearchFromVaryPath(tree.varyPath)
+    if (renderedSearch !== null) {
+      requestTree[5] = renderedSearch
+    }
+  }
   return requestTree
 }
 
@@ -2086,6 +2108,12 @@ function pingRuntimePrefetches(
   ]
   if (tree.prefetchHints !== 0) {
     requestTree[4] = tree.prefetchHints
+  }
+  if (tree.isPage) {
+    const renderedSearch = getRenderedSearchFromVaryPath(tree.varyPath)
+    if (renderedSearch !== null) {
+      requestTree[5] = renderedSearch
+    }
   }
   return requestTree
 }
@@ -2605,39 +2633,6 @@ function pingFullSegmentRevalidation(
         return null
     }
   }
-}
-
-function doesCurrentSegmentMatchCachedSegment(
-  route: FulfilledRouteCacheEntry,
-  currentTree: RouteTree<CacheNode>,
-  cachedTree: RouteTree<null>
-): boolean {
-  if (!matchSegment(currentTree.segment, cachedTree.segment)) {
-    return false
-  }
-  if (currentTree.isPage) {
-    if (!cachedTree.isPage) {
-      return false
-    }
-    // Preserve the legacy PAGE comparison: a page with search params is part
-    // of the new tree, even when the current and target queries are equal.
-    // The old comparator received its segment arguments in reverse order;
-    // correcting that behavior is separate from this structural refactor.
-    const currentSearch = getRenderedSearchFromVaryPath(currentTree.varyPath)
-    return (
-      Object.keys(
-        urlSearchParamsToParsedUrlQuery(
-          new URLSearchParams(currentSearch ?? '')
-        )
-      ).length === 0 &&
-      Object.keys(
-        urlSearchParamsToParsedUrlQuery(
-          new URLSearchParams(route.renderedSearch)
-        )
-      ).length === 0
-    )
-  }
-  return !cachedTree.isPage
 }
 
 /**

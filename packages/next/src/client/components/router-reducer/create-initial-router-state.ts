@@ -54,9 +54,11 @@ export function createInitialRouterState({
   const initialHead = initialTransportData.h.r
 
   // The initial router state tree, derived from the transport tree. Page
-  // segments keep their search params, which travel inside the segment
-  // string.
-  const initialTree = transportNodeToFlightRouterState(initialTransportData.t)
+  // segments store the response's rendered query in their own tuple slot.
+  const initialTree = transportNodeToFlightRouterState(
+    initialTransportData.t,
+    initialRenderedSearch
+  )
 
   const canonicalUrl =
     // location.href is read as the initial value for canonicalUrl in the browser

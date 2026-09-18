@@ -1,4 +1,5 @@
 import type { RouteTree } from './segment-cache/cache'
+import { getRenderedSearchFromVaryPath } from './segment-cache/vary-path'
 import React, {
   useEffect,
   useMemo,
@@ -498,14 +499,22 @@ function Router({
     // the head. (This is what LayoutRouter does for segment data, too.)
     //
     // The `key` is used to remount the component whenever the head moves to
-    // a different segment.
-    const [headRenderTree, headKey, headKeyWithoutSearchParams] = matchingHead
+    // a different segment or its search params change.
+    const [headRenderTree, headKey] = matchingHead
+    const headSearch = headRenderTree.isPage
+      ? getRenderedSearchFromVaryPath(headRenderTree.varyPath)
+      : null
 
     head = (
       <Head
         key={
-          // Necessary for PPR: omit search params from the key to match prerendered keys
-          typeof window === 'undefined' ? headKeyWithoutSearchParams : headKey
+          // Omit search params during SSR so PPR keys match the prerender.
+          // TODO: To model this more accurately, we should use
+          // React.optimisticKey instead. Perhaps a separate Fragment that wraps
+          // around the Head: <Fragment key={headKey}> where headKey is
+          // React.optimisticKey during SSR. We should do this for all fallback
+          // param values.
+          typeof window === 'undefined' ? headKey : headKey + (headSearch ?? '')
         }
         headRenderTree={headRenderTree}
       />
